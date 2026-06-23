@@ -1,0 +1,5 @@
+capturas_precintos/
+.env
+venv/
+__pycache__/
+*.pyc
