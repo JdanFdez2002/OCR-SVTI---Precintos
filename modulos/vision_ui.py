@@ -62,7 +62,9 @@ def ejecutar_vision():
         
         cv2.putText(frame_mostrar, f"ESTADO: {estado_actual}", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         cv2.putText(frame_mostrar, f"VEL: {vel_mov}", (250, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 255), 1)
-        cv2.putText(frame_mostrar, "MOV: [8456] | ZOOM: [WS] | FOCO: [79] | PARAR: [ESPACIO]", (20, frame_mostrar.shape[0]-35), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+        
+        # Texto de ayuda actualizado
+        cv2.putText(frame_mostrar, "MOV: [WASD] | ZOOM: [IK] | FOCO: [JL] | PARAR: [ESPACIO]", (20, frame_mostrar.shape[0]-35), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
         cv2.putText(frame_mostrar, "SISTEMA: OCR [P] | VEL [1-3] | SALIR [ESC]", (20, frame_mostrar.shape[0]-15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
 
         cv2.imshow(WINDOW_NAME, frame_mostrar)
@@ -80,33 +82,33 @@ def ejecutar_vision():
         elif tecla == ord('2'): vel_mov = 50
         elif tecla == ord('3'): vel_mov = 100
 
-        # Movimiento Numpad
-        elif tecla == ord('8'): 
+        # Movimiento WASD
+        elif tecla == ord('w') or tecla == ord('W'): 
             service.mover_camara(ip, pan=0, tilt=vel_mov)
             estado_actual = "SUBIENDO"
-        elif tecla == ord('5'): 
+        elif tecla == ord('s') or tecla == ord('S'): 
             service.mover_camara(ip, pan=0, tilt=-vel_mov)
             estado_actual = "BAJANDO"
-        elif tecla == ord('4'): 
+        elif tecla == ord('a') or tecla == ord('A'): 
             service.mover_camara(ip, pan=-vel_mov, tilt=0)
             estado_actual = "IZQUIERDA"
-        elif tecla == ord('6'): 
+        elif tecla == ord('d') or tecla == ord('D'): 
             service.mover_camara(ip, pan=vel_mov, tilt=0)
             estado_actual = "DERECHA"
 
-        # Zoom (W / S)
-        elif tecla == ord('w') or tecla == ord('W'): 
+        # Zoom (I / K) - Movido para liberar WASD
+        elif tecla == ord('i') or tecla == ord('I'): 
             service.mover_camara(ip, zoom=vel_mov)
             estado_actual = "ZOOM IN"
-        elif tecla == ord('s') or tecla == ord('S'): 
+        elif tecla == ord('k') or tecla == ord('K'): 
             service.mover_camara(ip, zoom=-vel_mov)
             estado_actual = "ZOOM OUT"
 
-        # Foco (7 / 9)
-        elif tecla == ord('7'): 
+        # Foco (J / L)
+        elif tecla == ord('j') or tecla == ord('J'): 
             service.mover_camara(ip, focus=vel_lente)
             estado_actual = "FOCO CERCA (+)"
-        elif tecla == ord('9'): 
+        elif tecla == ord('l') or tecla == ord('L'): 
             service.mover_camara(ip, focus=-vel_lente)
             estado_actual = "FOCO LEJOS (-)"
 
