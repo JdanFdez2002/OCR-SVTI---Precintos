@@ -3,3 +3,4 @@ capturas_precintos/
 venv/
 __pycache__/
 *.pyc
+manifiestos_diarios/
