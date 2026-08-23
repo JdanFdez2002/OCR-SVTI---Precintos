@@ -22,6 +22,9 @@ Instalar NumPy compatible:
 Instalar OpenCV:
 - pip install opencv-python==4.6.0.66
 
+Instalar dotenv:
+- pip install dotenv
+
 Verificar con:
 - pip list | findstr "numpy opencv paddle"
 
