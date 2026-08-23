@@ -1,3 +1,20 @@
+"""
+Módulo de gestión de cámara IP (Video en vivo y Control PTZ).
+
+ Captura de video IRL
+   - Se conecta al stream RTSP de la cámara usando OpenCV
+   - Reduce el retraso (lag) al mínimo configurando el buffer en 1 fotograma
+   - Reconecta automáticamente si se pierde la conexión o la señal de video
+
+ Acceso seguro a imágenes (Thread-safe)
+   - Guarda el último fotograma en segundo plano y permite consultarlo desde otros módulos sin congelar la app (usando Locks).
+
+ Control de movimiento y lente (Protocolo ISAPI de HIKVISION):
+   - Mueve la cámara (rotación horizontal/vertical y zoom).
+   - Controla el enfoque manual y activa el ajuste automático del diafragma (Iris).
+   - Maneja la autenticación y las peticiones HTTP seguras con la cámara.
+"""
+
 import threading
 import time
 from urllib.parse import quote

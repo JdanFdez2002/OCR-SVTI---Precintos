@@ -1,3 +1,17 @@
+"""
+Módulo Worker en segundo plano (PySide6 / Qt) para el control PTZ y óptico asíncrono.
+
+ Ejecución de comandos no bloqueante:
+   - Se envían las peticiones HTTP/ISAPI de movimiento, zoom y enfoque en un hilo dedicado para evitar congelamientos o micro-tirones en la interfaz gráfica
+
+ Sincronización y colapso de comandos:
+   - Permanecer dormido sin consumir CPU hasta recibir una orden.
+   - Si el usuario genera múltiples comandos rápidos, sobreescribe el comando pendiente para despachar siempre el estado más reciente
+
+ Comunicación de fallos con Qt Signals:
+   - Emite la señal `error` hacia la UI si la cámara rechaza la petición o se pierde la conexión de red
+"""
+
 import threading
 
 from PySide6.QtCore import QThread, Signal

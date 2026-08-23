@@ -1,3 +1,20 @@
+"""
+Módulo de Reconocimiento Óptico de Caracteres (OCR)
+
+ Instanciación Única y Thread-Safe (Singleton)
+   - Carga el motor PaddleOCR en memoria una sola vez para evitar sobrecarga y bloqueos
+
+ Preprocesamiento Avanzado de Imagen
+   - Genera múltiples filtros sobre la imagen filtro bilateral para maximizar la legibilidad
+
+ Pipeline de Reconocimiento resiliente con Salida Temprana
+   - Intenta primero una lectura directa rápida. Si cumple con un umbral alto de confianza  y longitud, devuelve el resultado al instante para ahorrar cómputo.
+   - Si no es concluyente, prueba en cascada todas las variantes preprocesadas y rotaciones, seleccionando el texto con mayor puntuación ponderada
+
+Uso del Scoring queda PaddleOCR:
+   - Evalúa y premia la confianza del OCR, la cantidad de caracteres alfanuméricos y el ajuste a patrones típicos de precintos de seguridad
+"""
+
 import logging
 import re
 import threading

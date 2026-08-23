@@ -1,3 +1,13 @@
+"""
+Ventana principal de la aplicación
+
+Responsabilidades:
+- Visualización de video en vivo con recorte de retícula para precintos
+- Control de cámara PTZ
+- Captura fotográfica e inferencia asíncrona mediante OcrWorker
+- Gestión de configuración, estados de conexión y ciclo de vida de los hilos de trabajo
+"""
+
 import threading
 from datetime import datetime
 

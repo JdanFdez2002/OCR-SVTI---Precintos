@@ -1,10 +1,11 @@
+"""
+Botón personalizado para PTZ, emite el motion_start al mantenerlo presionado y motion_stop al soltarlo.
+"""
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QPushButton
 
 
 class HoldButton(QPushButton):
-    """Botón de mantener pulsado para PTZ continuo."""
-
     motion_start = Signal()
     motion_stop = Signal()
 

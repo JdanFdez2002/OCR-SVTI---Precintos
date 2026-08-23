@@ -1,3 +1,18 @@
+"""
+Módulo de gestión de configuración y persistencia de credenciales de la cámara
+
+ Modelo de datos:
+   - Define la estructura `CameraSettings` para almacenar de forma centralizada la IP, usuario, contraseña y canal de transmisión de la cámara.
+
+ Carga jerárquica de configuración (Fallback dinámico):
+   - Recupera los ajustes persistidos por el usuario mediante el almacenamiento nativo del sistema operativo
+   - Si no existen valores previos, recurre automáticamente a las variables de entorno del archivo `.env` (`CAM_IP`, `CAM_USER`, etc)
+
+ Persistencia segura y validación:
+   - Guarda los cambios realizados en la UI aplicando limpieza de espacios strip() y fuersa la sincronización inmediata en eldisco s.sync()
+   - Da una función rápida para validar si todos los campos requeridos están completos
+"""
+
 import os
 from dataclasses import dataclass
 
