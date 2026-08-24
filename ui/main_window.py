@@ -9,22 +9,34 @@ Responsabilidades:
 """
 
 import threading
-from datetime import datetime
+from datetime import date, datetime
+from difflib import SequenceMatcher
 
 import cv2
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
+from PySide6.QtCore import QDate, QEvent, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QAbstractSpinBox,
     QApplication,
+    QDateEdit,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSlider,
+    QTableWidget,
+    QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -38,6 +50,7 @@ from config import (
     recorte_reticula,
 )
 from modulos.camera_service import CameraService
+from modulos.excel_manifest import RegistroEsperado, cargar_excel
 from modulos.ocr_worker import OcrWorker
 from modulos.ptz_worker import PtzWorker
 from modulos.settings_store import (
@@ -51,13 +64,64 @@ from ui.styles import APP_STYLESHEET
 from ui.video_widget import VideoWidget
 
 
+class RegistroDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Agregar registro")
+
+        self._patente = QLineEdit()
+        self._marca = QLineEdit()
+        self._fecha = QDateEdit()
+        self._fecha.setCalendarPopup(True)
+        self._fecha.setDisplayFormat("dd-MM-yyyy")
+        self._fecha.setDate(QDate.currentDate())
+        self._precinto = QLineEdit()
+
+        form = QFormLayout()
+        form.addRow("Patente", self._patente)
+        form.addRow("Marca", self._marca)
+        form.addRow("Fecha esperada", self._fecha)
+        form.addRow("Precinto esperado", self._precinto)
+
+        botones = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        botones.accepted.connect(self.accept)
+        botones.rejected.connect(self.reject)
+
+        lay = QVBoxLayout(self)
+        lay.addLayout(form)
+        lay.addWidget(botones)
+
+    def registro(self) -> RegistroEsperado:
+        return RegistroEsperado(
+            patente=self._patente.text().strip().upper(),
+            marca=self._marca.text().strip(),
+            fecha_esperada=self._fecha.date().toPython(),
+            precinto_esperado=self._precinto.text().strip().upper(),
+            estado="Pendiente",
+        )
+
+    def accept(self):
+        registro = self.registro()
+        if not registro.patente or not registro.fecha_esperada or not registro.precinto_esperado:
+            QMessageBox.warning(
+                self,
+                "Datos incompletos",
+                "Patente, fecha esperada y precinto esperado son obligatorios.",
+            )
+            return
+        super().accept()
+
+
 class MainWindow(QMainWindow):
     _captura_alta_lista = Signal(object)
     _captura_alta_error = Signal(str)
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ACCELERA SVTI — Precintos")
+        self.setWindowTitle("SeAIScan SVTI — Precintos")
         self.resize(1280, 760)
         self.setStyleSheet(APP_STYLESHEET)
 
@@ -69,6 +133,8 @@ class MainWindow(QMainWindow):
         self._ocr_listo = False
         self._ocr_ocupado = False
         self._captura_thread: threading.Thread | None = None
+        self._manifiesto = []
+        self._llenando_tabla = False
 
         self._ptz = PtzWorker(self)
         self._ptz.error.connect(self._on_ptz_error)
@@ -99,7 +165,7 @@ class MainWindow(QMainWindow):
     def _armar_ui(self):
         self._video = VideoWidget()
 
-        self._lbl_titulo = QLabel("ACCELERA SVTI")
+        self._lbl_titulo = QLabel("SeAIScan SVTI")
         self._lbl_titulo.setObjectName("titulo")
         self._lbl_estado = QLabel("Sin conexión")
         self._lbl_estado.setObjectName("estado")
@@ -111,6 +177,12 @@ class MainWindow(QMainWindow):
         self._btn_conectar = QPushButton("Conectar")
         self._btn_conectar.setObjectName("primario")
         self._btn_conectar.clicked.connect(self._toggle_conexion)
+        self._btn_modo_dia = QPushButton("Dia")
+        self._btn_modo_dia.clicked.connect(lambda: self._cambiar_modo_dia_noche("dia"))
+        self._btn_modo_noche = QPushButton("Noche")
+        self._btn_modo_noche.clicked.connect(lambda: self._cambiar_modo_dia_noche("noche"))
+        self._btn_modo_auto = QPushButton("Auto")
+        self._btn_modo_auto.clicked.connect(lambda: self._cambiar_modo_dia_noche("auto"))
 
         caja_cam = QGroupBox("Cámara")
         lay_cam = QVBoxLayout(caja_cam)
@@ -118,6 +190,11 @@ class MainWindow(QMainWindow):
         lay_cam.addWidget(self._lbl_canal)
         lay_cam.addWidget(self._btn_config)
         lay_cam.addWidget(self._btn_conectar)
+        lay_modo = QHBoxLayout()
+        lay_modo.addWidget(self._btn_modo_dia)
+        lay_modo.addWidget(self._btn_modo_noche)
+        lay_modo.addWidget(self._btn_modo_auto)
+        lay_cam.addLayout(lay_modo)
 
         self._btn_up = HoldButton("▲")
         self._btn_down = HoldButton("▼")
@@ -197,6 +274,38 @@ class MainWindow(QMainWindow):
         ayuda.setWordWrap(True)
         ayuda.setStyleSheet("color: #A6ADC8; font-weight: 400;")
 
+        self._btn_cargar_excel = QPushButton("Cargar Excel")
+        self._btn_cargar_excel.clicked.connect(self._cargar_excel)
+        self._btn_agregar_registro = QPushButton("+")
+        self._btn_agregar_registro.setObjectName("primario")
+        self._btn_agregar_registro.clicked.connect(self._agregar_registro)
+        self._btn_eliminar_registro = QPushButton("Eliminar pendiente")
+        self._btn_eliminar_registro.clicked.connect(self._eliminar_registros_pendientes)
+        self._lbl_excel_estado = QLabel("Sin Excel cargado")
+        self._tabla_excel = QTableWidget(0, 5)
+        self._tabla_excel.setHorizontalHeaderLabels(
+            ["Patente", "Marca", "Fecha esperada", "Precinto esperado", "Estado"]
+        )
+        self._tabla_excel.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+        )
+        self._tabla_excel.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._tabla_excel.verticalHeader().setVisible(False)
+        self._tabla_excel.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._tabla_excel.setMinimumHeight(180)
+        self._tabla_excel.itemChanged.connect(self._on_tabla_item_changed)
+
+        caja_excel = QGroupBox("Manifiesto esperado")
+        lay_excel = QVBoxLayout(caja_excel)
+        lay_excel_botones = QHBoxLayout()
+        lay_excel_botones.addWidget(self._btn_cargar_excel)
+        lay_excel_botones.addWidget(self._btn_agregar_registro)
+        lay_excel_botones.addWidget(self._btn_eliminar_registro)
+        lay_excel.addLayout(lay_excel_botones)
+        lay_excel.addWidget(self._lbl_excel_estado)
+        lay_excel.addWidget(self._tabla_excel)
+
         lateral = QWidget()
         lateral.setFixedWidth(340)
         lay_lat = QVBoxLayout(lateral)
@@ -209,12 +318,271 @@ class MainWindow(QMainWindow):
         lay_lat.addWidget(caja_ocr, 1)
         lay_lat.addWidget(ayuda)
 
+        scroll_lateral = QScrollArea()
+        scroll_lateral.setWidgetResizable(True)
+        scroll_lateral.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_lateral.setWidget(lateral)
+        scroll_lateral.setFixedWidth(360)
+
         central = QWidget()
         lay = QHBoxLayout(central)
         lay.setContentsMargins(8, 8, 0, 8)
-        lay.addWidget(self._video, 1)
-        lay.addWidget(lateral)
+        panel_video = QWidget()
+        lay_video = QVBoxLayout(panel_video)
+        lay_video.setContentsMargins(0, 0, 0, 0)
+        lay_video.addWidget(self._video, 3)
+        lay_video.addWidget(caja_excel, 1)
+        lay.addWidget(panel_video, 1)
+        lay.addWidget(scroll_lateral)
         self.setCentralWidget(central)
+
+    def _cargar_excel(self):
+        rutas, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Cargar Excel",
+            "",
+            "Archivos Excel (*.xlsx *.xlsm)",
+        )
+        if not rutas:
+            return
+        nuevos = []
+        errores = []
+        for ruta in rutas:
+            try:
+                nuevos.extend(cargar_excel(ruta))
+            except Exception as exc:
+                errores.append(f"{ruta}: {exc}")
+        if errores:
+            QMessageBox.warning(self, "Excel", "\n".join(errores[:5]))
+            if not nuevos:
+                return
+        agregados, repetidos = self._agregar_registros(nuevos)
+        self._llenar_tabla_excel()
+        self._actualizar_estado_excel()
+        if repetidos:
+            detalle = "\n".join(repetidos[:10])
+            extra = "" if len(repetidos) <= 10 else f"\n... y {len(repetidos) - 10} mas"
+            QMessageBox.information(
+                self,
+                "Registros repetidos",
+                f"Se agregaron {agregados} registros.\n"
+                f"Se omitieron {len(repetidos)} repetidos:\n{detalle}{extra}",
+            )
+
+    def _agregar_registro(self):
+        dlg = RegistroDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        registro = dlg.registro()
+        registro.estado = self._estado_inicial(registro.fecha_esperada)
+        agregados, repetidos = self._agregar_registros([registro])
+        if repetidos:
+            QMessageBox.warning(self, "Registro repetido", repetidos[0])
+            return
+        if agregados:
+            self._llenar_tabla_excel()
+            self._actualizar_estado_excel()
+
+    def _agregar_registros(self, registros: list[RegistroEsperado]) -> tuple[int, list[str]]:
+        existentes = {
+            self._clave_registro(registro)
+            for registro in self._manifiesto
+            if self._clave_registro(registro)
+        }
+        agregados = 0
+        repetidos = []
+        for registro in registros:
+            registro.patente = registro.patente.strip().upper()
+            registro.marca = registro.marca.strip()
+            registro.precinto_esperado = registro.precinto_esperado.strip().upper()
+            registro.estado = self._estado_inicial(registro.fecha_esperada)
+            clave = self._clave_registro(registro)
+            if clave in existentes:
+                repetidos.append(
+                    f"{registro.patente} / {registro.precinto_esperado}"
+                )
+                continue
+            existentes.add(clave)
+            self._manifiesto.append(registro)
+            agregados += 1
+        return agregados, repetidos
+
+    def _llenar_tabla_excel(self):
+        self._llenando_tabla = True
+        self._tabla_excel.setRowCount(len(self._manifiesto))
+        for fila, registro in enumerate(self._manifiesto):
+            fecha = (
+                registro.fecha_esperada.strftime("%d-%m-%Y")
+                if registro.fecha_esperada
+                else ""
+            )
+            valores = [
+                registro.patente,
+                registro.marca,
+                fecha,
+                registro.precinto_esperado,
+                registro.estado,
+            ]
+            for columna, valor in enumerate(valores):
+                item = QTableWidgetItem(valor)
+                item.setBackground(self._color_estado(registro.estado))
+                item.setForeground(QColor("#1E1E2E"))
+                flags = Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+                if registro.estado == "Pendiente" and columna != 4:
+                    flags |= Qt.ItemFlag.ItemIsEditable
+                item.setFlags(flags)
+                self._tabla_excel.setItem(fila, columna, item)
+        self._llenando_tabla = False
+
+    def _actualizar_estado_excel(self):
+        self._lbl_excel_estado.setText(f"{len(self._manifiesto)} registros cargados")
+
+    def _clave_registro(self, registro: RegistroEsperado) -> str:
+        return self._normalizar_lectura(registro.precinto_esperado)
+
+    def _estado_inicial(self, fecha_esperada) -> str:
+        if fecha_esperada and fecha_esperada < date.today():
+            return "Atrasado"
+        return "Pendiente"
+
+    def _parse_fecha_tabla(self, texto: str):
+        texto = texto.strip()
+        for formato in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(texto, formato).date()
+            except ValueError:
+                pass
+        return None
+
+    def _on_tabla_item_changed(self, item: QTableWidgetItem):
+        if self._llenando_tabla:
+            return
+        fila = item.row()
+        columna = item.column()
+        if fila < 0 or fila >= len(self._manifiesto):
+            return
+
+        registro = self._manifiesto[fila]
+        if registro.estado != "Pendiente" or columna == 4:
+            self._llenar_tabla_excel()
+            return
+
+        valor = item.text().strip()
+        if columna in (0, 2, 3) and not valor:
+            QMessageBox.warning(
+                self,
+                "Dato obligatorio",
+                "Patente, fecha esperada y precinto esperado no pueden quedar vacios.",
+            )
+            self._llenar_tabla_excel()
+            return
+
+        if columna == 0:
+            registro.patente = valor.upper()
+        elif columna == 1:
+            registro.marca = valor
+        elif columna == 2:
+            fecha = self._parse_fecha_tabla(valor)
+            if fecha is None:
+                QMessageBox.warning(
+                    self,
+                    "Fecha invalida",
+                    "Usa una fecha como 26-08-2026 o 26/08/2026.",
+                )
+                self._llenar_tabla_excel()
+                return
+            registro.fecha_esperada = fecha
+            registro.estado = self._estado_inicial(fecha)
+        elif columna == 3:
+            precinto = valor.upper()
+            clave = self._normalizar_lectura(precinto)
+            for idx, otro in enumerate(self._manifiesto):
+                if idx != fila and self._clave_registro(otro) == clave:
+                    QMessageBox.warning(
+                        self,
+                        "Registro repetido",
+                        f"Ya existe un registro con el precinto {precinto}.",
+                    )
+                    self._llenar_tabla_excel()
+                    return
+            registro.precinto_esperado = precinto
+
+        self._llenar_tabla_excel()
+        self._actualizar_estado_excel()
+
+    def _eliminar_registros_pendientes(self):
+        filas = sorted(
+            {idx.row() for idx in self._tabla_excel.selectedIndexes()},
+            reverse=True,
+        )
+        if not filas:
+            QMessageBox.information(
+                self,
+                "Eliminar",
+                "Selecciona una o mas filas pendientes para eliminar.",
+            )
+            return
+        bloqueadas = [
+            fila for fila in filas
+            if self._manifiesto[fila].estado != "Pendiente"
+        ]
+        if bloqueadas:
+            QMessageBox.warning(
+                self,
+                "Eliminar",
+                "Solo se pueden eliminar filas en estado Pendiente.",
+            )
+            return
+        for fila in filas:
+            del self._manifiesto[fila]
+        self._llenar_tabla_excel()
+        self._actualizar_estado_excel()
+
+    def _color_estado(self, estado: str) -> QColor:
+        colores = {
+            "Pendiente": QColor("#FFFFFF"),
+            "Atrasado": QColor("#F38BA8"),
+            "Dudoso": QColor("#F9E2AF"),
+            "Llegado": QColor("#A6E3A1"),
+        }
+        return colores.get(estado, QColor("#FFFFFF"))
+
+    def _normalizar_lectura(self, texto: str) -> str:
+        return "".join(ch for ch in texto.upper() if ch.isalnum())
+
+    def _actualizar_manifiesto_por_ocr(self, texto: str) -> str | None:
+        if not self._manifiesto:
+            return None
+
+        lectura = self._normalizar_lectura(texto)
+        if not lectura:
+            return None
+
+        mejor_fila = None
+        mejor_ratio = 0.0
+        for fila, registro in enumerate(self._manifiesto):
+            precinto = self._normalizar_lectura(registro.precinto_esperado)
+            if not precinto:
+                continue
+            if precinto in lectura:
+                registro.estado = "Llegado"
+                self._llenar_tabla_excel()
+                self._tabla_excel.selectRow(fila)
+                return f"Coincidencia exacta con precinto {registro.precinto_esperado}"
+
+            ratio = SequenceMatcher(None, precinto, lectura).ratio()
+            if ratio > mejor_ratio:
+                mejor_ratio = ratio
+                mejor_fila = fila
+
+        if mejor_fila is not None and mejor_ratio >= 0.72:
+            self._manifiesto[mejor_fila].estado = "Dudoso"
+            self._llenar_tabla_excel()
+            self._tabla_excel.selectRow(mejor_fila)
+            registro = self._manifiesto[mejor_fila]
+            return f"Coincidencia dudosa con precinto {registro.precinto_esperado}"
+
+        return None
 
     def _vincular_ptz(self, boton: HoldButton, pan=None, tilt=None, zoom=None, focus=None):
         def start():
@@ -250,8 +618,14 @@ class MainWindow(QMainWindow):
         fn()
         return True
 
+    def _atajos_globales_activos(self) -> bool:
+        if QApplication.activeModalWidget() is not None:
+            return False
+        foco = QApplication.focusWidget()
+        return not isinstance(foco, (QLineEdit, QTextEdit, QAbstractSpinBox))
+
     def eventFilter(self, watched, event):
-        if isinstance(event, QKeyEvent) and not isinstance(self.focusWidget(), QLineEdit):
+        if isinstance(event, QKeyEvent) and self._atajos_globales_activos():
             teclas_ptz = (
                 Qt.Key.Key_W, Qt.Key.Key_S, Qt.Key.Key_A, Qt.Key.Key_D,
                 Qt.Key.Key_I, Qt.Key.Key_K, Qt.Key.Key_J, Qt.Key.Key_L,
@@ -304,6 +678,22 @@ class MainWindow(QMainWindow):
             self._desconectar()
         else:
             self._conectar()
+
+    def _cambiar_modo_dia_noche(self, modo: str):
+        if self._service is None or not settings_completos(self._cfg):
+            QMessageBox.information(
+                self,
+                "Camara",
+                "Conecta la camara antes de cambiar el modo dia/noche.",
+            )
+            return
+        ok = self._service.configurar_modo_dia_noche(self._cfg.ip, modo)
+        if ok:
+            self._set_estado(f"Modo camara: {modo}", "#A6E3A1")
+            return
+        mensaje = self._service.ultimo_error or "La camara no acepto el cambio de modo."
+        self._set_estado(f"Modo camara: error", "#F38BA8")
+        QMessageBox.warning(self, "Camara", mensaje)
 
     def _texto_canal(self) -> str:
         tipo = "media" if self._canal_activo == CANAL_RTSP_MEDIO else "alta"
@@ -455,7 +845,11 @@ class MainWindow(QMainWindow):
             self._lbl_score.setText("Score: —")
             self._lbl_variante.setText(f"Método: {variante}")
             return
-        self._lbl_ocr_estado.setText("Lectura completada")
+        coincidencia = self._actualizar_manifiesto_por_ocr(texto)
+        if coincidencia:
+            self._lbl_ocr_estado.setText(f"Lectura completada - {coincidencia}")
+        else:
+            self._lbl_ocr_estado.setText("Lectura completada")
         self._txt_ocr.setPlainText(texto)
         self._lbl_confianza.setText(f"Confianza OCR: {conf * 100:.1f} %")
         self._lbl_score.setText(f"Score: {score:.2f}")

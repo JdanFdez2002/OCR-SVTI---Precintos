@@ -123,3 +123,32 @@ class CameraService:
         except Exception as exc:
             self.ultimo_error = str(exc)
             return False
+
+    def configurar_modo_dia_noche(self, ip, modo: str) -> bool:
+        valores = {
+            "dia": "day",
+            "día": "day",
+            "noche": "night",
+            "auto": "auto",
+        }
+        valor = valores.get((modo or "").strip().lower())
+        if valor is None:
+            self.ultimo_error = f"Modo dia/noche no valido: {modo}"
+            return False
+
+        url = f"http://{ip}/ISAPI/Image/channels/1/ircutFilter"
+        xml = (
+            "<IrcutFilter>"
+            f"<IrcutFilterType>{valor}</IrcutFilterType>"
+            "</IrcutFilter>"
+        )
+        try:
+            resp = self.session.put(url, data=xml, timeout=2)
+            if resp.status_code >= 400:
+                self.ultimo_error = f"Camara rechazo modo {modo}: HTTP {resp.status_code}"
+                return False
+            return True
+        except Exception as exc:
+            self.ultimo_error = str(exc)
+            return False
+

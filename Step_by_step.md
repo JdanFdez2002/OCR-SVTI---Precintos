@@ -25,6 +25,9 @@ Instalar OpenCV:
 Instalar dotenv:
 - pip install dotenv
 
+Instalar lector de Excel:
+- pip install openpyxl
+
 Verificar con:
 - pip list | findstr "numpy opencv paddle"
 

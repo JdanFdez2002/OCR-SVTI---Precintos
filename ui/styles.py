@@ -21,6 +21,25 @@ QLineEdit, QTextEdit, QSpinBox {
     padding: 6px 8px;
     selection-background-color: #89B4FA;
 }
+QTableWidget {
+    background-color: #1E1E2E;
+    alternate-background-color: #26263A;
+    color: #CDD6F4;
+    border: 1px solid #45475A;
+    border-radius: 6px;
+    gridline-color: #45475A;
+    selection-background-color: #89B4FA;
+    selection-color: #1E1E2E;
+}
+QHeaderView::section {
+    background-color: #313244;
+    color: #CDD6F4;
+    border: none;
+    border-right: 1px solid #45475A;
+    border-bottom: 1px solid #45475A;
+    padding: 6px 8px;
+    font-weight: 700;
+}
 QPushButton {
     background-color: #313244;
     color: #CDD6F4;
