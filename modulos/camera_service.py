@@ -76,6 +76,27 @@ class CameraService:
                 return None
             return self.ultimo_frame.copy()
 
+    @staticmethod
+    def capturar_frame_rtsp(rtsp_url: str, intentos: int = 30):
+        cap = cv2.VideoCapture()
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 3000)
+        cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 3000)
+        if not cap.open(rtsp_url):
+            cap.release()
+            return None
+
+        frame = None
+        try:
+            for _ in range(intentos):
+                ret, actual = cap.read()
+                if ret and actual is not None:
+                    frame = actual.copy()
+                    break
+        finally:
+            cap.release()
+        return frame
+
     def mover_camara(self, ip, pan=0, tilt=0, zoom=0, focus=0, iris=0) -> bool:
         detener = pan == 0 and tilt == 0 and zoom == 0 and focus == 0 and iris == 0
         try:

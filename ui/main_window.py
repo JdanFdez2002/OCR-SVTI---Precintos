@@ -12,7 +12,7 @@ import threading
 from datetime import datetime
 
 import cv2
-from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QKeyEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from config import (
+    CANAL_RTSP_DEFAULT,
     CANAL_RTSP_MEDIO,
     VEL_FOCO,
     asegurar_carpeta_capturas,
@@ -51,6 +52,9 @@ from ui.video_widget import VideoWidget
 
 
 class MainWindow(QMainWindow):
+    _captura_alta_lista = Signal(object)
+    _captura_alta_error = Signal(str)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("ACCELERA SVTI — Precintos")
@@ -64,6 +68,7 @@ class MainWindow(QMainWindow):
         self._vel_mov = 50
         self._ocr_listo = False
         self._ocr_ocupado = False
+        self._captura_thread: threading.Thread | None = None
 
         self._ptz = PtzWorker(self)
         self._ptz.error.connect(self._on_ptz_error)
@@ -76,6 +81,8 @@ class MainWindow(QMainWindow):
         self._ocr.failed.connect(self._on_ocr_error)
         self._ocr.start()
         self._ocr.pedir_warmup()
+        self._captura_alta_lista.connect(self._procesar_captura_alta)
+        self._captura_alta_error.connect(self._on_captura_alta_error)
 
         self._armar_ui()
         self._atajos()
@@ -386,19 +393,47 @@ class MainWindow(QMainWindow):
     def _capturar(self):
         if not self._btn_capturar.isEnabled() or self._service is None:
             return
-        frame = self._service.copiar_frame()
+        self._ocr_ocupado = True
+        self._actualizar_captura()
+        self._lbl_ocr_estado.setText(
+            f"Tomando foto en alta resolucion (canal {CANAL_RTSP_DEFAULT})..."
+        )
+        self._captura_thread = threading.Thread(
+            target=self._capturar_alta_res,
+            daemon=True,
+        )
+        self._captura_thread.start()
+
+    def _capturar_alta_res(self):
+        url = CameraService.url_rtsp(
+            self._cfg.usuario,
+            self._cfg.password,
+            self._cfg.ip,
+            CANAL_RTSP_DEFAULT,
+        )
+        frame = CameraService.capturar_frame_rtsp(url)
         if frame is None:
+            self._captura_alta_error.emit(
+                f"No se pudo capturar desde el canal {CANAL_RTSP_DEFAULT}"
+            )
             return
+        self._captura_alta_lista.emit(frame)
+
+    def _procesar_captura_alta(self, frame):
         recorte = recorte_reticula(frame)
         if recorte.size == 0:
             recorte = frame
         carpeta = asegurar_carpeta_capturas()
         ruta = carpeta / f"precinto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
         cv2.imwrite(str(ruta), recorte)
-        self._ocr_ocupado = True
-        self._actualizar_captura()
-        self._lbl_ocr_estado.setText("Leyendo precinto…")
+        self._lbl_ocr_estado.setText("Leyendo precinto...")
         self._ocr.pedir_ocr(recorte)
+
+    def _on_captura_alta_error(self, mensaje: str):
+        self._ocr_ocupado = False
+        self._actualizar_captura()
+        self._lbl_ocr_estado.setText("Error al capturar en alta resolucion")
+        QMessageBox.warning(self, "Captura", mensaje)
 
     def _on_ocr_listo(self):
         self._ocr_listo = True
