@@ -22,6 +22,12 @@ Instalar NumPy compatible:
 Instalar OpenCV:
 - pip install opencv-python==4.6.0.66
 
+Instalar dotenv:
+- pip install dotenv
+
+Instalar lector de Excel:
+- pip install openpyxl
+
 Verificar con:
 - pip list | findstr "numpy opencv paddle"
 

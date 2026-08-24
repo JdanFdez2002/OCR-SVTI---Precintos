@@ -1,23 +1,35 @@
 import os
-from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Debe setearse antes del primer VideoCapture
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
-# Credenciales (se cargan de env o se sobreescriben en main.py)
-CAM_USER = os.getenv("CAM_USER")
-CAM_PASS = os.getenv("CAM_PASS")
-CAM_IP = os.getenv("CAM_IP")
-
-# Configuración Visual
-COLOR_RETICULA = (0, 100, 0)
-GROSOR_RETICULA = 1
-ANCHO_RETICULA_PCT = 0.30 
+COLOR_RETICULA = (0, 180, 80)
+GROSOR_RETICULA = 2
+ANCHO_RETICULA_PCT = 0.30
 ALTO_RETICULA_PCT = 0.20
 
-# Configuración de Rutas
-CARPETA_CAPTURAS = "capturas_precintos"
-if not os.path.exists(CARPETA_CAPTURAS):
-    os.makedirs(CARPETA_CAPTURAS, exist_ok=True)
+RAIZ_PROYECTO = Path(__file__).resolve().parent
+CARPETA_CAPTURAS = RAIZ_PROYECTO / "capturas_precintos"
 
-# Forzar TCP para RTSP
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
+CANAL_RTSP_DEFAULT = "101"
+CANAL_RTSP_MEDIO = "102"
+PUERTO_RTSP = 554
+VEL_FOCO = 5
+
+
+def asegurar_carpeta_capturas() -> Path:
+    CARPETA_CAPTURAS.mkdir(parents=True, exist_ok=True)
+    return CARPETA_CAPTURAS
+
+
+def recorte_reticula(frame):
+    """Recorta la zona central equivalente a la retícula de la UI."""
+    alto, ancho = frame.shape[:2]
+    rw = max(1, int(ancho * ANCHO_RETICULA_PCT))
+    rh = max(1, int(alto * ALTO_RETICULA_PCT))
+    x1 = max(0, ancho // 2 - rw // 2)
+    y1 = max(0, alto // 2 - rh // 2)
+    x2 = min(ancho, x1 + rw)
+    y2 = min(alto, y1 + rh)
+    return frame[y1:y2, x1:x2].copy()
