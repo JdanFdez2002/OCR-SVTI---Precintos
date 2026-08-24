@@ -13,6 +13,7 @@ RAIZ_PROYECTO = Path(__file__).resolve().parent
 CARPETA_CAPTURAS = RAIZ_PROYECTO / "capturas_precintos"
 
 CANAL_RTSP_DEFAULT = "101"
+CANAL_RTSP_MEDIO = "102"
 PUERTO_RTSP = 554
 VEL_FOCO = 5
 

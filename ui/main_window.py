@@ -30,7 +30,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config import VEL_FOCO, asegurar_carpeta_capturas, recorte_reticula
+from config import (
+    CANAL_RTSP_MEDIO,
+    VEL_FOCO,
+    asegurar_carpeta_capturas,
+    recorte_reticula,
+)
 from modulos.camera_service import CameraService
 from modulos.ocr_worker import OcrWorker
 from modulos.ptz_worker import PtzWorker
@@ -53,6 +58,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(APP_STYLESHEET)
 
         self._cfg = load_camera_settings()
+        self._canal_activo = self._cfg.canal
         self._service: CameraService | None = None
         self._rtsp_thread: threading.Thread | None = None
         self._vel_mov = 50
@@ -90,6 +96,7 @@ class MainWindow(QMainWindow):
         self._lbl_titulo.setObjectName("titulo")
         self._lbl_estado = QLabel("Sin conexión")
         self._lbl_estado.setObjectName("estado")
+        self._lbl_canal = QLabel(self._texto_canal())
         self._lbl_ocr_motor = QLabel("Motor OCR: cargando…")
 
         self._btn_config = QPushButton("Configurar cámara")
@@ -101,6 +108,7 @@ class MainWindow(QMainWindow):
         caja_cam = QGroupBox("Cámara")
         lay_cam = QVBoxLayout(caja_cam)
         lay_cam.addWidget(self._lbl_estado)
+        lay_cam.addWidget(self._lbl_canal)
         lay_cam.addWidget(self._btn_config)
         lay_cam.addWidget(self._btn_conectar)
 
@@ -175,7 +183,10 @@ class MainWindow(QMainWindow):
         lay_ocr.addWidget(self._lbl_variante)
         lay_ocr.addWidget(self._txt_ocr)
 
-        ayuda = QLabel("Atajos: WASD mover · I/K zoom · J/L foco · Espacio detener · P capturar")
+        ayuda = QLabel(
+            "Atajos: WASD mover · I/K zoom · J/L foco · "
+            "Espacio detener · P capturar · Tab cambiar resolución"
+        )
         ayuda.setWordWrap(True)
         ayuda.setStyleSheet("color: #A6ADC8; font-weight: 400;")
 
@@ -238,9 +249,14 @@ class MainWindow(QMainWindow):
                 Qt.Key.Key_W, Qt.Key.Key_S, Qt.Key.Key_A, Qt.Key.Key_D,
                 Qt.Key.Key_I, Qt.Key.Key_K, Qt.Key.Key_J, Qt.Key.Key_L,
             )
-            if event.isAutoRepeat() and event.key() in teclas_ptz + (Qt.Key.Key_Space, Qt.Key.Key_P):
+            if event.isAutoRepeat() and event.key() in teclas_ptz + (
+                Qt.Key.Key_Space, Qt.Key.Key_P, Qt.Key.Key_Tab
+            ):
                 return True
             if event.type() == QEvent.Type.KeyPress:
+                if event.key() == Qt.Key.Key_Tab:
+                    self._alternar_canal()
+                    return True
                 if event.key() == Qt.Key.Key_Space:
                     self._detener_ptz()
                     return True
@@ -271,6 +287,8 @@ class MainWindow(QMainWindow):
             return
         save_camera_settings(nuevo)
         self._cfg = nuevo
+        self._canal_activo = nuevo.canal
+        self._lbl_canal.setText(self._texto_canal())
         if self._service is not None:
             self._conectar()
 
@@ -278,6 +296,23 @@ class MainWindow(QMainWindow):
         if self._service is not None:
             self._desconectar()
         else:
+            self._conectar()
+
+    def _texto_canal(self) -> str:
+        tipo = "media" if self._canal_activo == CANAL_RTSP_MEDIO else "alta"
+        return f"Resolución: {tipo} (canal {self._canal_activo})"
+
+    def _alternar_canal(self):
+        if not settings_completos(self._cfg):
+            return
+        canal_principal = self._cfg.canal
+        self._canal_activo = (
+            canal_principal
+            if self._canal_activo == CANAL_RTSP_MEDIO
+            else CANAL_RTSP_MEDIO
+        )
+        self._lbl_canal.setText(self._texto_canal())
+        if self._service is not None:
             self._conectar()
 
     def _conectar(self):
@@ -289,14 +324,14 @@ class MainWindow(QMainWindow):
         self._ptz.configurar(self._service, self._cfg.ip)
         self._service.configurar_auto_iris(self._cfg.ip)
         url = CameraService.url_rtsp(
-            self._cfg.usuario, self._cfg.password, self._cfg.ip, self._cfg.canal
+            self._cfg.usuario, self._cfg.password, self._cfg.ip, self._canal_activo
         )
         self._rtsp_thread = threading.Thread(
             target=self._service.lector_rtsp, args=(url,), daemon=True
         )
         self._rtsp_thread.start()
         self._btn_conectar.setText("Desconectar")
-        self._set_estado("Conectando…", "#F9E2AF")
+        self._set_estado(f"Conectando al canal {self._canal_activo}…", "#F9E2AF")
         self._video.set_placeholder("Conectando al stream RTSP…")
 
     def _desconectar(self):
